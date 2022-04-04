@@ -63,13 +63,13 @@ def process(path, currentFrame):
     backgroundOrMogus = 3
     mogus1 = [  (3,3,0,0,0),
                 (3,0,2,2,2),
-                (0,2,2,1,1),
+                (3,2,2,1,1),
                 (0,2,2,2,2),
                 (0,3,2,3,2),
                 (3,0,2,0,2)]
     mogus3 = [  (3,3,0,0,0),
                 (3,0,2,2,2),
-                (0,2,2,1,1),
+                (3,2,2,1,1),
                 (0,2,2,2,2),
                 (3,0,2,0,2)]
     mogus2 = [  (3,0,0,0,3),
@@ -221,6 +221,7 @@ def process(path, currentFrame):
     
     print("frame", storedFrame, "done, found ", mogusCount)
     file1 = open(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv", "a")  # append mode
+   
     file1.write(str(storedFrame) + "," +str(processStartTime) +  "," + str(mogusCount)+","+str(tallShort[0])+","+str(tallShort[1])+","+str(filterCount[0])+","+str(filterCount[1])+","+str(filterCount[2])+","+str(filterCount[3])+","+str(defectCount[0])+","+str(defectCount[1])+","+str(defectCount[2])+","+str(defectCount[3])+","+str(defectCount[4])+","+str(greenCount)+"\n")
     file1.close()
 

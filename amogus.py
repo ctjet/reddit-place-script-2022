@@ -529,204 +529,176 @@ class PlaceClient:
     def task(self, index, name, worker):
         # Whether image should keep drawing itself
         repeat_forever = False
-        nextSecond = index *60
-        startTime = time.time()
+
         processes = []
+       
+        # while True:
+        # reduce CPU usage
+        # time.sleep(20)
+
+        # get the current time
+
+
+        global currentFrame
+        print("starting thread: ", index, "for current frame", currentFrame)
+
+        imageExtension = "_{:06d}.png".format(currentFrame)
+        storedFrame = str(currentFrame)
+        currentFrame += 1
+
+        # log next time until drawing
+        # time_until_next_draw = next_pixel_placement_time - current_timestamp
+
+        # if time_until_next_draw > 10000:
+        #     logger.warning(f"Thread #{index} :: CANCELLED :: Rate-Limit Banned")
+        #     repeat_forever = False
+        #     break
+
+        # new_update_str = (
+        #     f"{time_until_next_draw} seconds until next pixel is drawn"
+        # )
+
+        # if update_str != new_update_str and time_until_next_draw % 10 == 0:
+        #     update_str = new_update_str
+        # else:
+        #     update_str = ""
+
+        # if len(update_str) > 0:
+        #     if not self.compactlogging:
+        #         logger.info("Thread #{} :: {}", index, update_str)
         while True:
-            # last_time_placed_pixel = math.floor(time.time())
+            try:
+                current_timestamp = math.floor(time.time())
 
-            # note: Reddit limits us to place 1 pixel every 5 minutes, so I am setting it to
-            # 5 minutes and 30 seconds per pixel
-            # if self.unverified_place_frequency:
-            #     pixel_place_frequency = 1230
-            # else:
-            #     pixel_place_frequency = 330
+                # refresh access token if necessary
+                if (
+                    len(self.access_tokens) == 0
+                    or len(self.access_token_expires_at_timestamp) == 0
+                    or
+                    # index in self.access_tokens
+                    index not in self.access_token_expires_at_timestamp
+                    or (
+                        self.access_token_expires_at_timestamp.get(index)
+                        and current_timestamp
+                        >= self.access_token_expires_at_timestamp.get(index)
+                    )
+                ):
+                    if not self.compactlogging:
+                        logger.info("Thread #{} :: Refreshing access token", index)
 
-            # next_pixel_placement_time = math.floor(time.time()) + pixel_place_frequency
-
-            # try:
-            #     # Current pixel row and pixel column being drawn
-            #     current_r = worker["start_coords"][0]
-            #     current_c = worker["start_coords"][1]
-            # except Exception:
-            #     logger.info("You need to provide start_coords to worker '{}'", name)
-            #     exit(1)
-
-            # Time until next pixel is drawn
-
-            # Refresh auth tokens and / or draw a pixel
-            while True:
-                # reduce CPU usage
-                # time.sleep(20)
-
-                # get the current time
-                currentSecond = math.floor(time.time()-startTime)
-
-                time.sleep(max(nextSecond - currentSecond,0))
-                nextSecond += threadCount*60
-
-
-                global currentFrame
-                print("starting thread: ", index, "for current frame", currentFrame)
-
-                imageExtension = "_{:06d}.png".format(currentFrame)
-                storedFrame = str(currentFrame)
-                currentFrame += 1
-
-                # log next time until drawing
-                # time_until_next_draw = next_pixel_placement_time - current_timestamp
-
-                # if time_until_next_draw > 10000:
-                #     logger.warning(f"Thread #{index} :: CANCELLED :: Rate-Limit Banned")
-                #     repeat_forever = False
-                #     break
-
-                # new_update_str = (
-                #     f"{time_until_next_draw} seconds until next pixel is drawn"
-                # )
-
-                # if update_str != new_update_str and time_until_next_draw % 10 == 0:
-                #     update_str = new_update_str
-                # else:
-                #     update_str = ""
-
-                # if len(update_str) > 0:
-                #     if not self.compactlogging:
-                #         logger.info("Thread #{} :: {}", index, update_str)
-                while True:
+                    # developer's reddit username and password
                     try:
-                        current_timestamp = math.floor(time.time())
+                        username = name
+                        password = worker["password"]
+                    except Exception:
+                        logger.info(
+                            "You need to provide all required fields to worker '{}'",
+                            name,
+                        )
+                        exit(1)
 
-                        # refresh access token if necessary
-                        if (
-                            len(self.access_tokens) == 0
-                            or len(self.access_token_expires_at_timestamp) == 0
-                            or
-                            # index in self.access_tokens
-                            index not in self.access_token_expires_at_timestamp
-                            or (
-                                self.access_token_expires_at_timestamp.get(index)
-                                and current_timestamp
-                                >= self.access_token_expires_at_timestamp.get(index)
+                    while True:
+                        try:
+                            client = requests.Session()
+                            client.headers.update(
+                                {
+                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36"
+                                }
                             )
-                        ):
-                            if not self.compactlogging:
-                                logger.info("Thread #{} :: Refreshing access token", index)
+                            r = client.get("https://www.reddit.com/login")
+                            login_get_soup = BeautifulSoup(r.content, "html.parser")
+                            csrf_token = login_get_soup.find(
+                                "input", {"name": "csrf_token"}
+                            )["value"]
+                            data = {
+                                "username": username,
+                                "password": password,
+                                "dest": "https://new.reddit.com/",
+                                "csrf_token": csrf_token,
+                            }
 
-                            # developer's reddit username and password
-                            try:
-                                username = name
-                                password = worker["password"]
-                            except Exception:
+                            r = client.post(
+                                "https://www.reddit.com/login",
+                                data=data,
+                                proxies=self.GetRandomProxy(),
+                            )
+                            break
+                        except Exception:
+                            logger.error(
+                                "Failed to connect to websocket, trying again in 30 seconds..."
+                            )
+                            time.sleep(30)
+
+                    if r.status_code != HTTPStatus.OK.value:
+                        # password is probably invalid
+                        logger.exception("Authorization failed!")
+                        return
+                    else:
+                        logger.success("Authorization successful!")
+                    
+                    while True:
+                        try:
+                            logger.info("Obtaining access token...")
+                            r = client.get("https://new.reddit.com/")
+                            data_str = (
+                                BeautifulSoup(r.content, features="html.parser")
+                                .find("script", {"id": "data"})
+                                .contents[0][len("window.__r = ") : -1]
+                            )
+                            data = json.loads(data_str)
+                            response_data = data["user"]["session"]
+
+                            if "error" in response_data:
                                 logger.info(
-                                    "You need to provide all required fields to worker '{}'",
-                                    name,
+                                    "An error occured. Make sure you have the correct credentials. Response data: {}",
+                                    response_data,
                                 )
                                 exit(1)
 
-                            while True:
-                                try:
-                                    client = requests.Session()
-                                    client.headers.update(
-                                        {
-                                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36"
-                                        }
-                                    )
-                                    r = client.get("https://www.reddit.com/login")
-                                    login_get_soup = BeautifulSoup(r.content, "html.parser")
-                                    csrf_token = login_get_soup.find(
-                                        "input", {"name": "csrf_token"}
-                                    )["value"]
-                                    data = {
-                                        "username": username,
-                                        "password": password,
-                                        "dest": "https://new.reddit.com/",
-                                        "csrf_token": csrf_token,
-                                    }
+                            self.access_tokens[index] = response_data["accessToken"]
+                            # access_token_type = data["user"]["session"]["accessToken"]  # this is just "bearer"
+                            access_token_expires_in_seconds = response_data[
+                                "expiresIn"
+                            ]  # this is usually "3600"
+                            # access_token_scope = response_data["scope"]  # this is usually "*"
+                            break
+                        except Exception as e:
+                            logger.error(
+                                "something failed, retrying", e
+                            )
+                            time.sleep(1)
 
-                                    r = client.post(
-                                        "https://www.reddit.com/login",
-                                        data=data,
-                                        proxies=self.GetRandomProxy(),
-                                    )
-                                    break
-                                except Exception:
-                                    logger.error(
-                                        "Failed to connect to websocket, trying again in 30 seconds..."
-                                    )
-                                    time.sleep(30)
-
-                            if r.status_code != HTTPStatus.OK.value:
-                                # password is probably invalid
-                                logger.exception("Authorization failed!")
-                                return
-                            else:
-                                logger.success("Authorization successful!")
-                            
-                            while True:
-                                try:
-                                    logger.info("Obtaining access token...")
-                                    r = client.get("https://new.reddit.com/")
-                                    data_str = (
-                                        BeautifulSoup(r.content, features="html.parser")
-                                        .find("script", {"id": "data"})
-                                        .contents[0][len("window.__r = ") : -1]
-                                    )
-                                    data = json.loads(data_str)
-                                    response_data = data["user"]["session"]
-
-                                    if "error" in response_data:
-                                        logger.info(
-                                            "An error occured. Make sure you have the correct credentials. Response data: {}",
-                                            response_data,
-                                        )
-                                        exit(1)
-
-                                    self.access_tokens[index] = response_data["accessToken"]
-                                    # access_token_type = data["user"]["session"]["accessToken"]  # this is just "bearer"
-                                    access_token_expires_in_seconds = response_data[
-                                        "expiresIn"
-                                    ]  # this is usually "3600"
-                                    # access_token_scope = response_data["scope"]  # this is usually "*"
-                                    break
-                                except Exception as e:
-                                    logger.error(
-                                        "something failed, retrying", e
-                                    )
-                                    time.sleep(1)
-
-                            # ts stores the time in seconds
-                            self.access_token_expires_at_timestamp[
-                                index
-                            ] = current_timestamp + int(access_token_expires_in_seconds)
-                            if not self.compactlogging:
-                                logger.info(
-                                    "Received new access token: {}************",
-                                    self.access_tokens.get(index)[:5],
-                                )
-                        
-                        boardimg = self.get_board(self.access_tokens[index])
-                        break
-                    except Exception as e:
-                        logger.error(
-                            "something failed, retrying", e
+                    # ts stores the time in seconds
+                    self.access_token_expires_at_timestamp[
+                        index
+                    ] = current_timestamp + int(access_token_expires_in_seconds)
+                    if not self.compactlogging:
+                        logger.info(
+                            "Received new access token: {}************",
+                            self.access_tokens.get(index)[:5],
                         )
-                        time.sleep(1)
-
-                boardimg.save(str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension,quality = 100)
-
                 
-                p = subprocess.Popen(["python","amogusProcess.py", "-p", str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension, "-i", storedFrame])
+                boardimg = self.get_board(self.access_tokens[index])
+                break
+            except Exception as e:
+                logger.error(
+                    "something failed, retrying", e
+                )
+                time.sleep(1)
+
+        boardimg.save(str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension,quality = 100)
+
+        print("done")
+        p = subprocess.Popen(["python","amogusProcess.py", "-p", str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension, "-i", storedFrame])
+        return
+        
 
     def start(self):
-        if os.path.exists(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv"):
-            os.remove(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv")
+
+
         for _, worker in enumerate(self.json_data["workers"]):
             for index in range(threadCount):
-                threading.Thread(
-                    target=self.task,
-                    args=[index, worker, self.json_data["workers"][worker]],
-                ).start()
+                self.task(index, worker, self.json_data["workers"][worker])
                 # time.sleep(self.delay_between_launches)
 
 
@@ -744,15 +716,27 @@ class PlaceClient:
     help="Location of config.json",
 )
 def main(debug: bool, config: str):
-
+    if os.path.exists(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv"):
+        os.remove(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv")
     if not debug:
         # default loguru level is DEBUG
         logger.remove()
         logger.add(sys.stderr, level="INFO")
 
-    client = PlaceClient(config_path=config)
-    # Start everything
-    client.start()
+    nextSecond = 0
+    startTime = time.time()
+
+    while True:
+        print("loop")
+        currentSecond = math.floor(time.time()-startTime)
+
+        time.sleep(max(nextSecond - currentSecond,0))
+        nextSecond += 60
+
+
+        client = PlaceClient(config_path=config)
+        # Start everything
+        client.start()
 
 
 if __name__ == "__main__":
