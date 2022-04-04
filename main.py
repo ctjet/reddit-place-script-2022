@@ -18,6 +18,8 @@ from PIL import Image, UnidentifiedImageError
 from loguru import logger
 import click
 from bs4 import BeautifulSoup
+import pause
+from datetime import datetime
 
 from stem import Signal, InvalidArguments, SocketError, ProtocolError
 from stem.control import Controller
@@ -547,7 +549,7 @@ class PlaceClient:
             if self.unverified_place_frequency:
                 pixel_place_frequency = 1230
             else:
-                pixel_place_frequency = 330
+                pixel_place_frequency = 600
 
             next_pixel_placement_time = math.floor(time.time()) + pixel_place_frequency
 
@@ -616,7 +618,7 @@ class PlaceClient:
                             "You need to provide all required fields to worker '{}'",
                             name,
                         )
-                        exit(1)
+                
 
                     while True:
                         try:
@@ -755,13 +757,14 @@ class PlaceClient:
                 break
 
     def start(self):
-        for index, worker in enumerate(self.json_data["workers"]):
+        worker = self.json_data["workers"][0]
+        for index in range (10):
             threading.Thread(
                 target=self.task,
                 args=[index, worker, self.json_data["workers"][worker]],
             ).start()
             # exit(1)
-            time.sleep(self.delay_between_launches)
+            time.sleep(60)
 
 
 @click.command()

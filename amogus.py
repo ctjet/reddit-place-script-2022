@@ -19,7 +19,7 @@ from loguru import logger
 import click
 from bs4 import BeautifulSoup
 import pathlib
-
+import subprocess
 
 from stem import Signal, InvalidArguments, SocketError, ProtocolError
 from stem.control import Controller
@@ -27,6 +27,9 @@ from stem.control import Controller
 
 from src.mappings import ColorMapper
 
+
+currentFrame = 0
+threadCount = 1
 
 class PlaceClient:
     def __init__(self, config_path):
@@ -526,396 +529,205 @@ class PlaceClient:
     def task(self, index, name, worker):
         # Whether image should keep drawing itself
         repeat_forever = False
-
+        nextSecond = index *60
+        startTime = time.time()
+        processes = []
         while True:
             # last_time_placed_pixel = math.floor(time.time())
 
             # note: Reddit limits us to place 1 pixel every 5 minutes, so I am setting it to
             # 5 minutes and 30 seconds per pixel
-            if self.unverified_place_frequency:
-                pixel_place_frequency = 1230
-            else:
-                pixel_place_frequency = 330
+            # if self.unverified_place_frequency:
+            #     pixel_place_frequency = 1230
+            # else:
+            #     pixel_place_frequency = 330
 
-            next_pixel_placement_time = math.floor(time.time()) + pixel_place_frequency
+            # next_pixel_placement_time = math.floor(time.time()) + pixel_place_frequency
 
-            try:
-                # Current pixel row and pixel column being drawn
-                current_r = worker["start_coords"][0]
-                current_c = worker["start_coords"][1]
-            except Exception:
-                logger.info("You need to provide start_coords to worker '{}'", name)
-                exit(1)
+            # try:
+            #     # Current pixel row and pixel column being drawn
+            #     current_r = worker["start_coords"][0]
+            #     current_c = worker["start_coords"][1]
+            # except Exception:
+            #     logger.info("You need to provide start_coords to worker '{}'", name)
+            #     exit(1)
 
             # Time until next pixel is drawn
-            update_str = ""
 
             # Refresh auth tokens and / or draw a pixel
             while True:
                 # reduce CPU usage
-                time.sleep(1)
+                # time.sleep(20)
 
                 # get the current time
-                current_timestamp = math.floor(time.time())
+                currentSecond = math.floor(time.time()-startTime)
+
+                time.sleep(max(nextSecond - currentSecond,0))
+                nextSecond += threadCount*60
+
+
+                global currentFrame
+                print("starting thread: ", index, "for current frame", currentFrame)
+
+                imageExtension = "_{:06d}.png".format(currentFrame)
+                storedFrame = str(currentFrame)
+                currentFrame += 1
 
                 # log next time until drawing
-                time_until_next_draw = next_pixel_placement_time - current_timestamp
+                # time_until_next_draw = next_pixel_placement_time - current_timestamp
 
-                if time_until_next_draw > 10000:
-                    logger.warning(f"Thread #{index} :: CANCELLED :: Rate-Limit Banned")
-                    repeat_forever = False
-                    break
+                # if time_until_next_draw > 10000:
+                #     logger.warning(f"Thread #{index} :: CANCELLED :: Rate-Limit Banned")
+                #     repeat_forever = False
+                #     break
 
-                new_update_str = (
-                    f"{time_until_next_draw} seconds until next pixel is drawn"
-                )
+                # new_update_str = (
+                #     f"{time_until_next_draw} seconds until next pixel is drawn"
+                # )
 
-                if update_str != new_update_str and time_until_next_draw % 10 == 0:
-                    update_str = new_update_str
-                else:
-                    update_str = ""
+                # if update_str != new_update_str and time_until_next_draw % 10 == 0:
+                #     update_str = new_update_str
+                # else:
+                #     update_str = ""
 
-                if len(update_str) > 0:
-                    if not self.compactlogging:
-                        logger.info("Thread #{} :: {}", index, update_str)
-
-                # refresh access token if necessary
-                if (
-                    len(self.access_tokens) == 0
-                    or len(self.access_token_expires_at_timestamp) == 0
-                    or
-                    # index in self.access_tokens
-                    index not in self.access_token_expires_at_timestamp
-                    or (
-                        self.access_token_expires_at_timestamp.get(index)
-                        and current_timestamp
-                        >= self.access_token_expires_at_timestamp.get(index)
-                    )
-                ):
-                    if not self.compactlogging:
-                        logger.info("Thread #{} :: Refreshing access token", index)
-
-                    # developer's reddit username and password
+                # if len(update_str) > 0:
+                #     if not self.compactlogging:
+                #         logger.info("Thread #{} :: {}", index, update_str)
+                while True:
                     try:
-                        username = name
-                        password = worker["password"]
-                    except Exception:
-                        logger.info(
-                            "You need to provide all required fields to worker '{}'",
-                            name,
-                        )
-                        exit(1)
+                        current_timestamp = math.floor(time.time())
 
-                    while True:
-                        try:
-                            client = requests.Session()
-                            client.headers.update(
-                                {
-                                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36"
-                                }
+                        # refresh access token if necessary
+                        if (
+                            len(self.access_tokens) == 0
+                            or len(self.access_token_expires_at_timestamp) == 0
+                            or
+                            # index in self.access_tokens
+                            index not in self.access_token_expires_at_timestamp
+                            or (
+                                self.access_token_expires_at_timestamp.get(index)
+                                and current_timestamp
+                                >= self.access_token_expires_at_timestamp.get(index)
                             )
-                            r = client.get("https://www.reddit.com/login")
-                            login_get_soup = BeautifulSoup(r.content, "html.parser")
-                            csrf_token = login_get_soup.find(
-                                "input", {"name": "csrf_token"}
-                            )["value"]
-                            data = {
-                                "username": username,
-                                "password": password,
-                                "dest": "https://new.reddit.com/",
-                                "csrf_token": csrf_token,
-                            }
+                        ):
+                            if not self.compactlogging:
+                                logger.info("Thread #{} :: Refreshing access token", index)
 
-                            r = client.post(
-                                "https://www.reddit.com/login",
-                                data=data,
-                                proxies=self.GetRandomProxy(),
-                            )
-                            break
-                        except Exception:
-                            logger.error(
-                                "Failed to connect to websocket, trying again in 30 seconds..."
-                            )
-                            time.sleep(30)
+                            # developer's reddit username and password
+                            try:
+                                username = name
+                                password = worker["password"]
+                            except Exception:
+                                logger.info(
+                                    "You need to provide all required fields to worker '{}'",
+                                    name,
+                                )
+                                exit(1)
 
-                    if r.status_code != HTTPStatus.OK.value:
-                        # password is probably invalid
-                        logger.exception("Authorization failed!")
-                        return
-                    else:
-                        logger.success("Authorization successful!")
-                    logger.info("Obtaining access token...")
-                    r = client.get("https://new.reddit.com/")
-                    data_str = (
-                        BeautifulSoup(r.content, features="html.parser")
-                        .find("script", {"id": "data"})
-                        .contents[0][len("window.__r = ") : -1]
-                    )
-                    data = json.loads(data_str)
-                    response_data = data["user"]["session"]
+                            while True:
+                                try:
+                                    client = requests.Session()
+                                    client.headers.update(
+                                        {
+                                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.84 Safari/537.36"
+                                        }
+                                    )
+                                    r = client.get("https://www.reddit.com/login")
+                                    login_get_soup = BeautifulSoup(r.content, "html.parser")
+                                    csrf_token = login_get_soup.find(
+                                        "input", {"name": "csrf_token"}
+                                    )["value"]
+                                    data = {
+                                        "username": username,
+                                        "password": password,
+                                        "dest": "https://new.reddit.com/",
+                                        "csrf_token": csrf_token,
+                                    }
 
-                    if "error" in response_data:
-                        logger.info(
-                            "An error occured. Make sure you have the correct credentials. Response data: {}",
-                            response_data,
-                        )
-                        exit(1)
+                                    r = client.post(
+                                        "https://www.reddit.com/login",
+                                        data=data,
+                                        proxies=self.GetRandomProxy(),
+                                    )
+                                    break
+                                except Exception:
+                                    logger.error(
+                                        "Failed to connect to websocket, trying again in 30 seconds..."
+                                    )
+                                    time.sleep(30)
 
-                    self.access_tokens[index] = response_data["accessToken"]
-                    # access_token_type = data["user"]["session"]["accessToken"]  # this is just "bearer"
-                    access_token_expires_in_seconds = response_data[
-                        "expiresIn"
-                    ]  # this is usually "3600"
-                    # access_token_scope = response_data["scope"]  # this is usually "*"
-
-                    # ts stores the time in seconds
-                    self.access_token_expires_at_timestamp[
-                        index
-                    ] = current_timestamp + int(access_token_expires_in_seconds)
-                    if not self.compactlogging:
-                        logger.info(
-                            "Received new access token: {}************",
-                            self.access_tokens.get(index)[:5],
-                        )
-                
-                print("oof")
-                boardimg = self.get_board(self.access_tokens[index])
-                enhancer = ImageEnhance.Brightness(boardimg)
-                darkImage = enhancer.enhance(0.25)
-
-                pix = boardimg.convert("RGB").load()
-                h, w = boardimg.size
-                highlight = Image.new(mode="RGBA", size=(2000, 2000),color = (0, 0, 0,0))
-                # highlight = blank.load()
-
-                files = os.listdir(str(pathlib.Path(__file__).parent.resolve()))
-
-                for item in files:
-                    if item.endswith(".png"):
-                        os.remove(os.path.join(str(pathlib.Path(__file__).parent.resolve()), item))
-                boardimg.save(str(pathlib.Path(__file__).parent.resolve())+"/cur.png",quality = 100)
-                
-                background = 0
-                visor = 1
-                mogus = 2
-                backgroundOrMogus = 3
-                mogus1 = [  (0,0,0,0,0),
-                            (0,0,2,2,2),
-                            (0,2,2,1,1),
-                            (0,2,2,2,2),
-                            (0,3,2,3,2),
-                            (0,0,2,0,2)]
-                mogus2 = [  (0,0,0,0,0),
-                            (0,0,2,2,2),
-                            (0,2,2,1,1),
-                            (0,2,2,2,2),
-                            (0,0,2,0,2)]
-                mogus3 = [  (0,0,0,0,0),
-                            (0,2,2,2,0),
-                            (0,1,1,2,2),
-                            (0,2,2,2,2),
-                            (0,2,3,2,3),
-                            (0,2,0,2,0)]
-                mogus4 = [  (0,0,0,0,0),
-                            (0,2,2,2,0),
-                            (0,1,1,2,2),
-                            (0,2,2,2,2),
-                            (0,2,0,2,0)]
+                            if r.status_code != HTTPStatus.OK.value:
+                                # password is probably invalid
+                                logger.exception("Authorization failed!")
+                                return
+                            else:
+                                logger.success("Authorization successful!")
                             
+                            while True:
+                                try:
+                                    logger.info("Obtaining access token...")
+                                    r = client.get("https://new.reddit.com/")
+                                    data_str = (
+                                        BeautifulSoup(r.content, features="html.parser")
+                                        .find("script", {"id": "data"})
+                                        .contents[0][len("window.__r = ") : -1]
+                                    )
+                                    data = json.loads(data_str)
+                                    response_data = data["user"]["session"]
+
+                                    if "error" in response_data:
+                                        logger.info(
+                                            "An error occured. Make sure you have the correct credentials. Response data: {}",
+                                            response_data,
+                                        )
+                                        exit(1)
+
+                                    self.access_tokens[index] = response_data["accessToken"]
+                                    # access_token_type = data["user"]["session"]["accessToken"]  # this is just "bearer"
+                                    access_token_expires_in_seconds = response_data[
+                                        "expiresIn"
+                                    ]  # this is usually "3600"
+                                    # access_token_scope = response_data["scope"]  # this is usually "*"
+                                    break
+                                except Exception as e:
+                                    logger.error(
+                                        "something failed, retrying", e
+                                    )
+                                    time.sleep(1)
+
+                            # ts stores the time in seconds
+                            self.access_token_expires_at_timestamp[
+                                index
+                            ] = current_timestamp + int(access_token_expires_in_seconds)
+                            if not self.compactlogging:
+                                logger.info(
+                                    "Received new access token: {}************",
+                                    self.access_tokens.get(index)[:5],
+                                )
+                        
+                        boardimg = self.get_board(self.access_tokens[index])
+                        break
+                    except Exception as e:
+                        logger.error(
+                            "something failed, retrying", e
+                        )
+                        time.sleep(1)
+
+                boardimg.save(str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension,quality = 100)
+
                 
-                filters = [mogus1, mogus2, mogus3, mogus4]
-
-                print(h , w)
-                
-               
-
-                highlightBlankColor = (0,0,0,0)
-
-                def findMogus(filter, x, y): #returns )
-                    bgCount = 0
-                    bgDict = {}
-                    mogusCount = 0
-                    mogusDict = {}
-                    visorColor = (0,0,0)
-                    visorCount = 0
-                    mogusLeniency = 1
-                    bgLeniency = 1
-
-                    #todo REVERSED
-                    #visor and mogus not same color
-                    #visor all same color and 
-                    #mogus contains no more than mogusLeniency other colors
-                    #mogusnot part of another mogus
-                    #background contains no mogus color (or if it does must be part of a different mogus)
-                    #   This may need to be done in a second loop through
-                    for xOff in range(len(filter[0])):
-                        for yOff in range(len(filter)):
-                            xPos = x + xOff
-                            yPos = y + yOff
-                            if(xPos >=0 and xPos < w):
-                                if(yPos >=0 and yPos < h):
-                                    color = pix[xPos,yPos]
-                                    #background
-                                    if(filter[yOff][xOff] == 0):
-                                        if highlight.getpixel((xPos,yPos)) == highlightBlankColor:
-                                            bgCount += 1
-                                            if color not in bgDict:
-                                                bgDict[color] = 1
-                                            else:
-                                                bgDict[color] = bgDict[color] + 1
-                                    #visor
-                                    elif(filter[yOff][xOff] == 1):
-                                        if visorCount == 0:
-                                            visorColor = color
-                                        else:
-                                            if color != visorColor:
-                                                return False
-                                        visorCount += 1
-                                    #mogus
-                                    elif(filter[yOff][xOff] == 2):
-                                        mogusCount += 1
-                                        if highlight.getpixel((xPos,yPos)) != highlightBlankColor:
-                                            return False
-                                        if color not in mogusDict:
-                                            mogusDict[color] = 1
-                                        else:
-                                            mogusDict[color] = mogusDict[color] + 1
-                                    #dont worry about the 3s
-                    
-                    def getMaxColor(dict):
-                        maxColor = ()
-                        maxCount = 0
-                        for color,count in dict.items():
-                            if (count > maxCount):
-                                maxColor = color
-                                maxCount = count
-                        return (maxColor, maxCount)
-
-                    mogusColor, mogusColorCount = getMaxColor(mogusDict)
-                    if (mogusColorCount < mogusCount - mogusLeniency):
-                        return False
-
-                    if (visorColor == mogusColor):
-                        return False
-
-                    if mogusColor in bgDict:
-                        if(bgDict[mogusColor] > bgLeniency):
-                            return False
-                    
-                    for xOff in range(len(filter[0])):
-                        for yOff in range(len(filter)):
-                            xPos = x + xOff
-                            yPos = y + yOff
-                            if(xPos >=0 and xPos < w):
-                                if(yPos >=0 and yPos < h):
-                                    color =  pix[xPos,yPos]
-                                    
-                                    if(filter[yOff][xOff] > 0):
-                                        highlight.putpixel((xPos,yPos),(color[0], color[1],color[2], 255))
-
-                    return True
-
-                row = 0
-                prevProgress = 0
-                mogusCount = 0
-                for fil in filters:
-                    for x in range(-1,w-len(mogus1[0])):
-                        progress = round(row*100 / (len(filters) * h))
-                        if progress != prevProgress:
-                            prevProgress = progress
-                            print(progress, "% done, found", mogusCount, "mogi")
-                        row += 1
-                        for y in range(-1,h-len(mogus1)):
-                            if findMogus(fil, x, y):
-                                # print("found mogus number", mogusCount)
-                                mogusCount += 1
-                
-                print(mogusCount)
-                highlight.save(str(pathlib.Path(__file__).parent.resolve())+"/highlight.png",quality = 100)
-                darkImage.paste(highlight, (0, 0), highlight)
-                darkImage.save(str(pathlib.Path(__file__).parent.resolve())+"/overlay.png",quality = 100)
-
-                for x in range(w):
-                    for y in range(h):
-                        if highlight.getpixel((x,y))[3]>0:
-                            highlight.putpixel((x,y),(0,255,0,255))
-
-                darkImage.paste(highlight, (0, 0), highlight)
-                darkImage.save(str(pathlib.Path(__file__).parent.resolve())+"/overlayGreen.png",quality = 100)
-                
-                quit()
-
-                # # draw pixel onto screen
-                # if self.access_tokens.get(index) is not None and (
-                #     current_timestamp >= next_pixel_placement_time
-                #     or self.first_run_counter <= index
-                # ):
-
-                #     # place pixel immediately
-                #     # first_run = False
-                #     self.first_run_counter += 1
-
-                #     # get target color
-                #     # target_rgb = pix[current_r, current_c]
-
-                #     # get current pixel position from input image and replacement color
-                #     current_r, current_c, new_rgb = self.get_unset_pixel(
-                #         current_r,
-                #         current_c,
-                #         index,
-                #     )
-
-                #     # get converted color
-                #     new_rgb_hex = ColorMapper.rgb_to_hex(new_rgb)
-                #     pixel_color_index = ColorMapper.COLOR_MAP[new_rgb_hex]
-
-                #     logger.info("\nAccount Placing: ", name, "\n")
-
-                #     # draw the pixel onto r/place
-                #     # There's a better way to do this
-                #     canvas = 0
-                #     pixel_x_start = self.pixel_x_start + current_r
-                #     pixel_y_start = self.pixel_y_start + current_c
-                #     while pixel_x_start > 999:
-                #         pixel_x_start -= 1000
-                #         canvas += 1
-                #     while pixel_y_start > 999:
-                #         pixel_y_start -= 1000
-                #         canvas += 2
-
-                #     # draw the pixel onto r/place
-                #     next_pixel_placement_time = self.set_pixel_and_check_ratelimit(
-                #         self.access_tokens[index],
-                #         pixel_x_start,
-                #         pixel_y_start,
-                #         pixel_color_index,
-                #         canvas,
-                #         index,
-                #     )
-
-                #     current_r += 1
-
-                #     # go back to first column when reached end of a row while drawing
-                #     if current_r >= self.image_size[0]:
-                #         current_r = 0
-                #         current_c += 1
-
-                #     # exit when all pixels drawn
-                #     if current_c >= self.image_size[1]:
-                #         logger.info("Thread #{} :: image completed", index)
-                #         break
-
-            if not repeat_forever:
-                quit()
-                break
+                p = subprocess.Popen(["python","amogusProcess.py", "-p", str(pathlib.Path(__file__).parent.resolve())+"/snapshots/cur"+imageExtension, "-i", storedFrame])
 
     def start(self):
-        for index, worker in enumerate(self.json_data["workers"]):
-            threading.Thread(
-                target=self.task,
-                args=[index, worker, self.json_data["workers"][worker]],
-            ).start()
-            # time.sleep(self.delay_between_launches)
+        if os.path.exists(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv"):
+            os.remove(str(pathlib.Path(__file__).parent.resolve())+"/frames.csv")
+        for _, worker in enumerate(self.json_data["workers"]):
+            for index in range(threadCount):
+                threading.Thread(
+                    target=self.task,
+                    args=[index, worker, self.json_data["workers"][worker]],
+                ).start()
+                # time.sleep(self.delay_between_launches)
 
 
 @click.command()
